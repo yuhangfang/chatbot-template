@@ -1,56 +1,81 @@
-import streamlit as st
 from openai import OpenAI
+import streamlit as st
 
-# Show title and description.
-st.title("💬 Chatbot")
-st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
-)
+# Sidebar for API key input
+with st.sidebar:
+    st.write("## Enter OpenAI API Key")
+    openai_api_key = st.text_input("OpenAI API Key", type="password")
+    confirm_key = st.button("Confirm API Key")
+    
+# Chat title and description
+st.title("💬 Alex's companion ")
+st.caption("🚀 Your AI friend that knows how to open your heart")
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
+StarterPrompt = """
+    *You are a charming, empathetic, and curious companion. Your goal is to create a warm and welcoming atmosphere where people feel comfortable opening up about their feelings, stories, and experiences. Start with light and engaging questions, and gauge the user's comfort level. If they are ready, gently guide the conversation to explore deeper topics like their values, past relationships, what they seek in a partner, and what makes them feel truly connected to someone. If they’re not ready, keep the conversation light and enjoyable, focusing on surface-level interests and experiences.*
 
-    # Create an OpenAI client.
+    *Use the information provided by the memory assistant to recall relevant details from past conversations, enhancing the personalization of each interaction. Reference these memories to show that you value what the user has shared before, deepening their sense of being understood and appreciated. Adjust your tone and depth of questions based on their responses, ensuring that they always feel comfortable and in control of the conversation.*
+
+    *Offer interactive elements like thought-provoking questions, challenges, or reflections that engage users actively and invite them to come back and share more. Maintain a consistent, approachable, and uplifting tone, making each interaction feel supportive and inspiring. Create a safe and non-judgmental space, ensuring that users feel comfortable sharing their true selves.*
+
+    *Your ultimate aim is to leave them feeling supported, inspired, and eager to continue the journey of self-discovery with you. Use the insights gained during the conversation to understand their unique personality and preferences, so you can help find a truly compatible match in the future, without directly suggesting matches.*
+    """
+
+
+# Define system message for personality (hidden from user)
+system_message = {
+    "role": "system",
+    "content": StarterPrompt
+}
+
+
+# Initialize message history with system personality if it's not already present
+if "messages" not in st.session_state:
+    st.session_state["messages"] = [system_message]
+    if not openai_api_key:
+        st.info("Please add your OpenAI API key to continue.")
+        st.stop()
+# If this is the first interaction, generate a dynamic greeting from the AI
+
     client = OpenAI(api_key=openai_api_key)
+    response = client.chat.completions.create(
+        model="gpt-4o", 
+        messages=[system_message],  # Use only the system message for the first greeting
+        temperature=0.7  # Adjust temperature for randomness; 0 is deterministic, 1 is more random
+    )
+    greeting_msg = response.choices[0].message.content
+    st.session_state["messages"].append({"role": "assistant", "content": greeting_msg})
 
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
 
-    # Display the existing chat messages via `st.chat_message`.
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+# Display all messages in the conversation
+for msg in st.session_state.messages:
+    if msg["role"] == "assistant":
+        st.chat_message("assistant").write(msg["content"])  # Assistant message on the left
+    elif msg["role"] == "user":
+        st.chat_message("user").write(msg["content"])  # User message on the right
 
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+# Handle user input
+if prompt := st.chat_input():
+    if not openai_api_key:
+        st.info("Please add your OpenAI API key to continue.")
+        st.stop()
 
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+    # Initialize OpenAI client
+    client = OpenAI(api_key=openai_api_key)
+    
+    # Append user's message to the conversation history
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    st.chat_message("user").write(prompt)  # User message on the right
 
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
-
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+    # Get response from OpenAI API, including the system message and conversation history
+    response = client.chat.completions.create(
+        model="gpt-4o", 
+        messages=st.session_state.messages
+    )
+    
+    # Extract assistant's message and append to the conversation history
+    msg = response.choices[0].message.content
+    st.session_state.messages.append({"role": "assistant", "content": msg})
+    
+    # Display assistant's message on the left
+    st.chat_message("assistant").write(msg)
